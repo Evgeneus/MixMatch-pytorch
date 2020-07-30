@@ -68,7 +68,7 @@ np.random.seed(args.manualSeed)
 best_acc = 0  # best test accuracy
 
 def main():
-    global best_acc
+    global best_acc, use_cuda
 
     if not os.path.isdir(args.out):
         mkdir_p(args.out)
@@ -94,9 +94,10 @@ def main():
     # Model
     print("==> creating WRN-28-2")
 
-    def create_model(ema=False):
+    def create_model(ema=False, use_cuda=False):
         model = models.WideResNet(num_classes=10)
-        model = model.cuda()
+        if use_cuda:
+            model = model.cuda()
 
         if ema:
             for param in model.parameters():
@@ -104,7 +105,7 @@ def main():
 
         return model
 
-    model = create_model()
+    model = create_model(use_cuda)
     ema_model = create_model(ema=True)
 
     cudnn.benchmark = True
@@ -296,6 +297,8 @@ def train(labeled_trainloader, unlabeled_trainloader, model, optimizer, ema_opti
                     loss_u=losses_u.avg,
                     w=ws.avg,
                     )
+        if batch_idx % 5 == 0:
+            print(bar.suffix)
         bar.next()
     bar.finish()
 
