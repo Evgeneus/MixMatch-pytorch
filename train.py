@@ -62,6 +62,7 @@ state = {k: v for k, v in args._get_kwargs()}
 # os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 use_cuda = torch.cuda.is_available()
+print("use_cuda: ", use_cuda)
 
 # Random seed
 if args.manualSeed is None:
@@ -72,7 +73,7 @@ best_acc = 0  # best test accuracy
 
 
 def main():
-    global best_acc, use_cuda
+    global best_acc, use_cuda, device
 
     if not os.path.isdir(args.out):
         mkdir_p(args.out)
@@ -108,7 +109,7 @@ def main():
     def create_model(ema=False, use_cuda=False):
         model = models.WideResNet(num_classes=10)
         if use_cuda:
-            model = model.cuda()
+            model = model.to(device)
 
         if ema:
             for param in model.parameters():
