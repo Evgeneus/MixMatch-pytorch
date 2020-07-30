@@ -28,7 +28,7 @@ parser.add_argument('--epochs', default=1024, type=int, metavar='N',
                     help='number of total epochs to run')
 parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
-parser.add_argument('--batch-size', default=64, type=int, metavar='N',
+parser.add_argument('--batch-size', default=512, type=int, metavar='N',
                     help='train batchsize')
 parser.add_argument('--lr', '--learning-rate', default=0.002, type=float,
                     metavar='LR', help='initial learning rate')
@@ -40,6 +40,8 @@ parser.add_argument('--manualSeed', type=int, default=0, help='manual seed')
 #Device options
 parser.add_argument('--gpu', default='0', type=str,
                     help='id(s) for CUDA_VISIBLE_DEVICES')
+parser.add_argument('--num-workers', default=8, type=int, metavar='N',
+                    help='number of workers')
 #Method options
 parser.add_argument('--n-labeled', type=int, default=250,
                         help='Number of labeled data')
@@ -57,7 +59,8 @@ args = parser.parse_args()
 state = {k: v for k, v in args._get_kwargs()}
 
 # Use CUDA
-os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
+# os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 use_cuda = torch.cuda.is_available()
 
 # Random seed
@@ -66,6 +69,7 @@ if args.manualSeed is None:
 np.random.seed(args.manualSeed)
 
 best_acc = 0  # best test accuracy
+
 
 def main():
     global best_acc, use_cuda
@@ -85,11 +89,18 @@ def main():
         dataset.ToTensor(),
     ])
 
-    train_labeled_set, train_unlabeled_set, val_set, test_set = dataset.get_cifar10('./data', args.n_labeled, transform_train=transform_train, transform_val=transform_val)
-    labeled_trainloader = data.DataLoader(train_labeled_set, batch_size=args.batch_size, shuffle=True, num_workers=0, drop_last=True)
-    unlabeled_trainloader = data.DataLoader(train_unlabeled_set, batch_size=args.batch_size, shuffle=True, num_workers=0, drop_last=True)
-    val_loader = data.DataLoader(val_set, batch_size=args.batch_size, shuffle=False, num_workers=0)
-    test_loader = data.DataLoader(test_set, batch_size=args.batch_size, shuffle=False, num_workers=0)
+    datasets = dataset.get_cifar10('./data', args.n_labeled, transform_train=transform_train, transform_val=transform_val)
+    train_labeled_set, train_unlabeled_set, val_set, test_set, test_unlabeled_dataset, val_unlabeled_dataset = datasets
+
+    labeled_trainloader = data.DataLoader(train_labeled_set, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, drop_last=True)
+    test_loader = data.DataLoader(test_set, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
+    val_loader = data.DataLoader(val_set, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
+
+    num, div = args.batch_size, 3
+    train_unlabeled_bsize, val_unlabeled_bsize, test_unlabeled_bsize = [num // div + (1 if x < num % div else 0)  for x in range (div)]
+    unlabeled_trainloader = data.DataLoader(train_unlabeled_set, batch_size=train_unlabeled_bsize, shuffle=True, num_workers=args.num_workers, drop_last=True)
+    unlabeled_valloader = data.DataLoader(val_unlabeled_dataset, batch_size=val_unlabeled_bsize, shuffle=True, num_workers=args.num_workers, drop_last=True)
+    unlabeled_testloader = data.DataLoader(test_unlabeled_dataset, batch_size=test_unlabeled_bsize, shuffle=True, num_workers=args.num_workers, drop_last=True)
 
     # Model
     print("==> creating WRN-28-2")
@@ -144,7 +155,9 @@ def main():
 
         print('\nEpoch: [%d | %d] LR: %f' % (epoch + 1, args.epochs, state['lr']))
 
-        train_loss, train_loss_x, train_loss_u = train(labeled_trainloader, unlabeled_trainloader, model, optimizer, ema_optimizer, train_criterion, epoch, use_cuda)
+        train_loss, train_loss_x, train_loss_u = train(labeled_trainloader, unlabeled_trainloader, model, optimizer,
+                                                       ema_optimizer, train_criterion, epoch, use_cuda,
+                                                       unlabeled_valloader, unlabeled_testloader)
         _, train_acc = validate(labeled_trainloader, ema_model, criterion, epoch, use_cuda, mode='Train Stats')
         val_loss, val_acc = validate(val_loader, ema_model, criterion, epoch, use_cuda, mode='Valid Stats')
         test_loss, test_acc = validate(test_loader, ema_model, criterion, epoch, use_cuda, mode='Test Stats ')
@@ -184,7 +197,8 @@ def main():
     print(np.mean(test_accs[-20:]))
 
 
-def train(labeled_trainloader, unlabeled_trainloader, model, optimizer, ema_optimizer, criterion, epoch, use_cuda):
+def train(labeled_trainloader, unlabeled_trainloader, model, optimizer, ema_optimizer,
+          criterion, epoch, use_cuda, unlabeled_valloader, unlabeled_testloader):
 
     batch_time = AverageMeter()
     data_time = AverageMeter()
@@ -197,6 +211,8 @@ def train(labeled_trainloader, unlabeled_trainloader, model, optimizer, ema_opti
     bar = Bar('Training', max=args.train_iteration)
     labeled_train_iter = iter(labeled_trainloader)
     unlabeled_train_iter = iter(unlabeled_trainloader)
+    unlabeled_val_iter = iter(unlabeled_valloader)
+    unlabeled_test_iter = iter(unlabeled_testloader)
 
     model.train()
     for batch_idx in range(args.train_iteration):
@@ -207,10 +223,28 @@ def train(labeled_trainloader, unlabeled_trainloader, model, optimizer, ema_opti
             inputs_x, targets_x = labeled_train_iter.next()
 
         try:
-            (inputs_u, inputs_u2), _ = unlabeled_train_iter.next()
+            (inputs_u_train, inputs_u2_train), _ = unlabeled_train_iter.next()
         except:
             unlabeled_train_iter = iter(unlabeled_trainloader)
-            (inputs_u, inputs_u2), _ = unlabeled_train_iter.next()
+            (inputs_u_train, inputs_u2_train), _ = unlabeled_train_iter.next()
+
+        try:
+            (inputs_u_val, inputs_u2_val), _ = unlabeled_val_iter.next()
+        except:
+            unlabeled_val_iter = iter(unlabeled_valloader)
+            (inputs_u_val, inputs_u2_val), _ = unlabeled_val_iter.next()
+
+        try:
+            (inputs_u_test, inputs_u2_test), _ = unlabeled_test_iter.next()
+        except:
+            unlabeled_val_iter = iter(unlabeled_valloader)
+            (inputs_u_test, inputs_u2_test), _ = unlabeled_test_iter.next()
+
+        inputs_u = torch.cat((inputs_u_train, inputs_u_val, inputs_u_test), dim=0)
+        inputs_u2 = torch.cat((inputs_u2_train, inputs_u2_val, inputs_u2_test), dim=0)
+
+        inputs_u = inputs_u[torch.randperm(inputs_u.size(0))]
+        inputs_u2 = inputs_u2[torch.randperm(inputs_u2.size(0))]
 
         # measure data loading time
         data_time.update(time.time() - end)
@@ -297,8 +331,8 @@ def train(labeled_trainloader, unlabeled_trainloader, model, optimizer, ema_opti
                     loss_u=losses_u.avg,
                     w=ws.avg,
                     )
-        if batch_idx % 5 == 0:
-            print(bar.suffix)
+        # if batch_idx % 5 == 0:
+        #     print(bar.suffix)
         bar.next()
     bar.finish()
 

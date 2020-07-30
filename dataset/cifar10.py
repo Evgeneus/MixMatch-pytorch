@@ -25,8 +25,12 @@ def get_cifar10(root, n_labeled,
     val_dataset = CIFAR10_labeled(root, val_idxs, train=True, transform=transform_val, download=True)
     test_dataset = CIFAR10_labeled(root, train=False, transform=transform_val, download=True)
 
+    test_unlabeled_dataset = CIFAR10_unlabeled(root, indexs=None, train=False, transform=TransformTwice(transform_train))
+    val_unlabeled_dataset = CIFAR10_unlabeled(root, val_idxs, train=True, transform=TransformTwice(transform_train))
+
     print (f"#Labeled: {len(train_labeled_idxs)} #Unlabeled: {len(train_unlabeled_idxs)} #Val: {len(val_idxs)}")
-    return train_labeled_dataset, train_unlabeled_dataset, val_dataset, test_dataset
+    return train_labeled_dataset, train_unlabeled_dataset, val_dataset, test_dataset,\
+           test_unlabeled_dataset, val_unlabeled_dataset
     
 
 def train_val_split(labels, n_labeled_per_class):
@@ -35,6 +39,7 @@ def train_val_split(labels, n_labeled_per_class):
     train_unlabeled_idxs = []
     val_idxs = []
 
+    np.random.seed(1234567)
     for i in range(10):
         idxs = np.where(labels == i)[0]
         np.random.shuffle(idxs)
@@ -155,5 +160,4 @@ class CIFAR10_unlabeled(CIFAR10_labeled):
         super(CIFAR10_unlabeled, self).__init__(root, indexs, train=train,
                  transform=transform, target_transform=target_transform,
                  download=download)
-        self.targets = np.array([-1 for i in range(len(self.targets))])
-        
+        self.targets = np.array([-1 for _ in range(len(self.targets))])
