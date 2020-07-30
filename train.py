@@ -60,7 +60,6 @@ state = {k: v for k, v in args._get_kwargs()}
 
 # Use CUDA
 # os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 use_cuda = torch.cuda.is_available()
 print("use_cuda: ", use_cuda)
 
@@ -109,6 +108,8 @@ def main():
     def create_model(ema=False, use_cuda=False):
         model = models.WideResNet(num_classes=10)
         if use_cuda:
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            print(device)
             model = model.to(device)
 
         if ema:
