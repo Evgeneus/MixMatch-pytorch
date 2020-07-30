@@ -117,7 +117,7 @@ def main():
         return model
 
     model = create_model(use_cuda)
-    ema_model = create_model(ema=True)
+    ema_model = create_model(ema=True, use_cuda=use_cuda)
 
     cudnn.benchmark = True
     print('    Total params: %.2fM' % (sum(p.numel() for p in model.parameters())/1000000.0))
