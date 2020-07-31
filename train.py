@@ -108,8 +108,6 @@ def main():
     def create_model(ema=False, use_cuda=False):
         model = models.WideResNet(num_classes=10)
         if use_cuda:
-            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            print(device)
             model = model.to(device)
 
         if ema:
@@ -118,7 +116,7 @@ def main():
 
         return model
 
-    model = create_model(use_cuda)
+    model = create_model(ema=False, use_cuda=use_cuda)
     ema_model = create_model(ema=True, use_cuda=use_cuda)
 
     cudnn.benchmark = True
