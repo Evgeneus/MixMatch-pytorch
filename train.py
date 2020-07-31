@@ -298,7 +298,8 @@ def train(labeled_trainloader, unlabeled_trainloader, model, optimizer, ema_opti
         logits_x = logits[0]
         logits_u = torch.cat(logits[1:], dim=0)
 
-        Lx, Lu, w = criterion(logits_x, mixed_target[:batch_size], logits_u, mixed_target[batch_size:], epoch+batch_idx/args.train_iteration)
+        Lx, Lu, w = criterion(logits_x, mixed_target[:batch_size], logits_u, mixed_target[batch_size:],
+                              epoch*args.train_iteration+batch_idx)
 
         loss = Lx + w * Lu
 
@@ -402,13 +403,13 @@ def linear_rampup(current, rampup_length=args.epochs):
         return float(current)
 
 class SemiLoss(object):
-    def __call__(self, outputs_x, targets_x, outputs_u, targets_u, epoch):
+    def __call__(self, outputs_x, targets_x, outputs_u, targets_u, current_iter):
         probs_u = torch.softmax(outputs_u, dim=1)
 
         Lx = -torch.mean(torch.sum(F.log_softmax(outputs_x, dim=1) * targets_x, dim=1))
         Lu = torch.mean((probs_u - targets_u)**2)
 
-        return Lx, Lu, args.lambda_u * linear_rampup(epoch)
+        return Lx, Lu, args.lambda_u * linear_rampup(current_iter, rampup_length=16000)
 
 class WeightEMA(object):
     def __init__(self, model, ema_model, alpha=0.999):
