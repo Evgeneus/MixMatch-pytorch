@@ -239,7 +239,7 @@ def train(labeled_trainloader, unlabeled_trainloader, model, optimizer, ema_opti
         try:
             (inputs_u_test, inputs_u2_test), _ = unlabeled_test_iter.next()
         except:
-            unlabeled_val_iter = iter(unlabeled_valloader)
+            unlabeled_test_iter = iter(unlabeled_testloader)
             (inputs_u_test, inputs_u2_test), _ = unlabeled_test_iter.next()
 
         inputs_u = torch.cat((inputs_u_train, inputs_u_val, inputs_u_test), dim=0)
