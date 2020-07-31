@@ -28,7 +28,7 @@ parser.add_argument('--epochs', default=1024, type=int, metavar='N',
                     help='number of total epochs to run')
 parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
-parser.add_argument('--batch-size', default=512, type=int, metavar='N',
+parser.add_argument('--batch-size', default=64, type=int, metavar='N',
                     help='train batchsize')
 parser.add_argument('--lr', '--learning-rate', default=0.002, type=float,
                     metavar='LR', help='initial learning rate')
@@ -108,7 +108,7 @@ def main():
     def create_model(ema=False, use_cuda=False):
         model = models.WideResNet(num_classes=10)
         if use_cuda:
-            model = model.to(device)
+            model = model.cuda()
 
         if ema:
             for param in model.parameters():
