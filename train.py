@@ -40,6 +40,8 @@ parser.add_argument('--manualSeed', type=int, default=0, help='manual seed')
 #Device options
 parser.add_argument('--gpu', default='0', type=str,
                     help='id(s) for CUDA_VISIBLE_DEVICES')
+parser.add_argument('--num-workers', default=8, type=int, metavar='N',
+                    help='number of workers')
 #Method options
 parser.add_argument('--n-labeled', type=int, default=250,
                         help='Number of labeled data')
@@ -57,7 +59,7 @@ args = parser.parse_args()
 state = {k: v for k, v in args._get_kwargs()}
 
 # Use CUDA
-os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
+# os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
 use_cuda = torch.cuda.is_available()
 
 # Random seed
@@ -86,10 +88,10 @@ def main():
     ])
 
     train_labeled_set, train_unlabeled_set, val_set, test_set = dataset.get_cifar10('./data', args.n_labeled, transform_train=transform_train, transform_val=transform_val)
-    labeled_trainloader = data.DataLoader(train_labeled_set, batch_size=args.batch_size, shuffle=True, num_workers=0, drop_last=True)
-    unlabeled_trainloader = data.DataLoader(train_unlabeled_set, batch_size=args.batch_size, shuffle=True, num_workers=0, drop_last=True)
-    val_loader = data.DataLoader(val_set, batch_size=args.batch_size, shuffle=False, num_workers=0)
-    test_loader = data.DataLoader(test_set, batch_size=args.batch_size, shuffle=False, num_workers=0)
+    labeled_trainloader = data.DataLoader(train_labeled_set, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, drop_last=True)
+    unlabeled_trainloader = data.DataLoader(train_unlabeled_set, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, drop_last=True)
+    val_loader = data.DataLoader(val_set, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
+    test_loader = data.DataLoader(test_set, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
 
     # Model
     print("==> creating WRN-28-2")
@@ -105,8 +107,8 @@ def main():
 
         return model
 
-    model = create_model(use_cuda)
-    ema_model = create_model(ema=True)
+    model = create_model(ema=False, use_cuda=use_cuda)
+    ema_model = create_model(ema=True, use_cuda=use_cuda)
 
     cudnn.benchmark = True
     print('    Total params: %.2fM' % (sum(p.numel() for p in model.parameters())/1000000.0))
@@ -264,8 +266,8 @@ def train(labeled_trainloader, unlabeled_trainloader, model, optimizer, ema_opti
         logits_x = logits[0]
         logits_u = torch.cat(logits[1:], dim=0)
 
-        Lx, Lu, w = criterion(logits_x, mixed_target[:batch_size], logits_u, mixed_target[batch_size:], epoch+batch_idx/args.train_iteration)
-
+        Lx, Lu, w = criterion(logits_x, mixed_target[:batch_size], logits_u, mixed_target[batch_size:],
+                              epoch * args.train_iteration + batch_idx)
         loss = Lx + w * Lu
 
         # record loss
@@ -297,8 +299,8 @@ def train(labeled_trainloader, unlabeled_trainloader, model, optimizer, ema_opti
                     loss_u=losses_u.avg,
                     w=ws.avg,
                     )
-        if batch_idx % 5 == 0:
-            print(bar.suffix)
+        # if batch_idx % 5 == 0:
+        #     print(bar.suffix)
         bar.next()
     bar.finish()
 
@@ -368,13 +370,13 @@ def linear_rampup(current, rampup_length=args.epochs):
         return float(current)
 
 class SemiLoss(object):
-    def __call__(self, outputs_x, targets_x, outputs_u, targets_u, epoch):
+    def __call__(self, outputs_x, targets_x, outputs_u, targets_u, current_iter):
         probs_u = torch.softmax(outputs_u, dim=1)
 
         Lx = -torch.mean(torch.sum(F.log_softmax(outputs_x, dim=1) * targets_x, dim=1))
         Lu = torch.mean((probs_u - targets_u)**2)
 
-        return Lx, Lu, args.lambda_u * linear_rampup(epoch)
+        return Lx, Lu, args.lambda_u * linear_rampup(current_iter, rampup_length=16000)
 
 class WeightEMA(object):
     def __init__(self, model, ema_model, alpha=0.999):
