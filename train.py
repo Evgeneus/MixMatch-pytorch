@@ -243,8 +243,9 @@ def train(labeled_trainloader, unlabeled_trainloader, model, optimizer, ema_opti
         inputs_u = torch.cat((inputs_u_train, inputs_u_val, inputs_u_test), dim=0)
         inputs_u2 = torch.cat((inputs_u2_train, inputs_u2_val, inputs_u2_test), dim=0)
 
-        inputs_u = inputs_u[torch.randperm(inputs_u.size(0))]
-        inputs_u2 = inputs_u2[torch.randperm(inputs_u2.size(0))]
+        rand_permuts_u = torch.randperm(inputs_u.size(0))
+        inputs_u = inputs_u[rand_permuts_u]
+        inputs_u2 = inputs_u2[rand_permuts_u]
 
         # measure data loading time
         data_time.update(time.time() - end)
